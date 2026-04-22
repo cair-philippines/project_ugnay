@@ -2,7 +2,7 @@
 
 **"Ugnay"** means *connection* in Filipino.
 
-A nationwide school-to-school road distance network for ~56K Philippine schools, with per-school accessibility metrics and an interactive web platform for DepEd planners. Built on top of the unified coordinates from [project_coordinates](../project_coordinates).
+A nationwide school-to-school road distance network for ~56K Philippine schools, with per-school accessibility metrics. Built on top of the unified coordinates from [project_coordinates](../project_coordinates).
 
 ## Problem
 
@@ -16,7 +16,7 @@ Straight-line (haversine) distances mislead in archipelagic terrain — a school
 
 ## Solution
 
-Three phases, all complete:
+Two phases, both complete:
 
 ### Phase 1 — Sparse Edge Network
 
@@ -26,15 +26,9 @@ Computes road distances between every pair of schools within a 20 km road cutoff
 
 ### Phase 2 — Accessibility Metrics
 
-Derives per-school accessibility metrics from the edge table: neighbor counts at distance bands, nearest private/ESC/JHS/SHS school, desert flags, and an isolation score. Aggregates to municipal, provincial, and regional summaries for choropleth display.
+Derives per-school accessibility metrics from the edge table: neighbor counts at distance bands, nearest private/ESC/JHS/SHS school, desert flags, and an isolation score. Aggregates to municipal, provincial, and regional summaries.
 
 **Output:** `school_accessibility.parquet` (55,864 rows, 30+ columns) + 3 admin-level summary files.
-
-### Phase 3 — Platform
-
-Interactive web platform for DepEd planners. Choropleth map of accessibility metrics at the municipal level, with drill-down to individual schools and arc visualization of each school's road-distance neighbors.
-
-**Stack:** FastAPI + React 19 + deck.gl + Tailwind CSS 4, deployed on Cloud Run.
 
 ## Key Findings
 
@@ -101,13 +95,6 @@ Schools are excluded if their `coord_rejection_reason` indicates a bogus coordin
 | `municipal_summary.parquet` | 1,707 | Per-municipality accessibility summary |
 | `provincial_summary.parquet` | 127 | Per-province summary |
 | `regional_summary.parquet` | 18 | Per-region summary |
-
-### Boundaries (`output/boundaries/`)
-
-| File | Description |
-|---|---|
-| `municipal_boundaries.geojson` | 1,642 dissolved municipal polygons for choropleth |
-| `provincial_boundaries.geojson` | 118 dissolved provincial polygons |
 
 ### Dense Matrix (`output/dense_matrix/`)
 
@@ -198,32 +185,6 @@ neighbors = dist.get_neighbors("136718", max_m=5000)
 distances = dist.get_many([("136718", "320102"), ("136718", "130001")])
 ```
 
-### Phase 3 — Run platform locally
-
-```bash
-# Backend
-cd platform/backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-
-# Frontend (separate terminal)
-cd platform/frontend
-npm install
-npm run dev
-# Open http://localhost:5173
-```
-
-### Deploy platform to Cloud Run
-
-```bash
-cd platform/
-bash prepare_deploy.sh          # stages data files for Docker build
-docker build -t ugnay-platform .
-gcloud builds submit --tag gcr.io/ecair-paaral-project/ugnay-platform
-gcloud run deploy ugnay-platform --image gcr.io/ecair-paaral-project/ugnay-platform \
-  --region asia-southeast1 --memory 2Gi --allow-unauthenticated
-```
-
 ## Project Structure
 
 ```
@@ -241,22 +202,8 @@ project_ugnay/
 │   ├── run_region_batch.py      # Phase 1 CLI entry point
 │   ├── run_metrics.py           # Phase 2 CLI entry point
 │   ├── validate_edges.py        # Edge validation suite
-│   ├── dissolve_municipal_boundaries.py  # Generate GeoJSON boundaries for platform
+│   ├── dissolve_municipal_boundaries.py  # Generate dissolved admin boundary GeoJSON
 │   └── build_dense_matrix.py    # Build dense N×N .npy matrix from sparse edges
-├── platform/
-│   ├── Dockerfile               # Multi-stage: Node 20 (frontend build) + Python 3.11 (FastAPI)
-│   ├── prepare_deploy.sh        # Stage output files for Docker image
-│   ├── backend/
-│   │   ├── main.py              # FastAPI app (7 endpoints)
-│   │   ├── data_loader.py       # Parquet + GeoJSON loader with index building
-│   │   └── requirements.txt
-│   └── frontend/
-│       ├── src/
-│       │   ├── App.jsx
-│       │   ├── components/      # MapView, SchoolPanel, FilterBar, MetricLegend, StatsBar
-│       │   └── hooks/           # useSchoolData API client
-│       ├── package.json         # React 19, deck.gl 9.1, MapLibre GL, Tailwind CSS 4
-│       └── vite.config.js
 ├── notebooks/
 │   ├── 1.0-reference-pipeline-walkthrough.ipynb
 │   ├── 1.1-validate-edges.ipynb
@@ -265,23 +212,20 @@ project_ugnay/
 │   ├── edges/                   # Phase 1 outputs (~253 MB)
 │   ├── metrics/                 # Phase 2 per-school metrics (~5.5 MB)
 │   ├── aggregations/            # Phase 2 admin summaries (~344 KB)
-│   ├── boundaries/              # GeoJSON for platform choropleth (~12 MB)
 │   └── dense_matrix/            # Dense distance matrix (~546 MB)
 ├── documentation/
-│   ├── plan.md                  # Overall 4-phase design
+│   ├── plan.md                  # Overall design and phase roadmap
 │   ├── phase_1_sparse_edge_network.md
 │   ├── phase_2_accessibility_metrics.md
-│   ├── phase_3_platform.md
 │   └── osrm_edge_computation.md # OSRM troubleshooting and technical notes
 └── keys -> ../paaral_eda/keys   # Symlink to GCS service account credentials
 ```
 
 ## Documentation
 
-- **[Plan](documentation/plan.md)** — full 4-phase design, decisions, and verification checkpoints
+- **[Plan](documentation/plan.md)** — full design, decisions, and verification checkpoints
 - **[Phase 1: Sparse Edge Network](documentation/phase_1_sparse_edge_network.md)** — pipeline design, OSRM batching strategy, edge schema, and statistics
 - **[Phase 2: Accessibility Metrics](documentation/phase_2_accessibility_metrics.md)** — metric definitions, aggregation logic, and key findings
-- **[Phase 3: Platform](documentation/phase_3_platform.md)** — tech stack, API endpoints, map layers, and deployment
 - **[OSRM Edge Computation Notes](documentation/osrm_edge_computation.md)** — URL length limits, sub-batching fix, retry logic, and known gaps in OSM coverage
 
 ## Known Limitations
@@ -302,7 +246,7 @@ project_ugnay/
 This project was developed with substantial assistance from **Claude** (Anthropic), used as a collaborative coding and technical writing partner throughout the project lifecycle. AI was used for:
 
 - **Architecture design** — iterating on the sparse-vs-dense tradeoff, haversine pre-filter strategy, regional batching approach, and cross-region boundary handling
-- **Code implementation** — writing all Python modules, CLI scripts, and the FastAPI + React platform
+- **Code implementation** — writing all Python modules and CLI scripts
 - **OSRM troubleshooting** — diagnosing URL length limits (HTTP 400 on large regions), designing the sub-batching fix, and implementing retry logic (500 → 100 → 20 → 1)
 - **Data quality** — identifying bogus placeholder coordinates in the private school dataset and propagating the upstream fix into the coordinates filter
 - **Metric design** — defining isolation score, feeder-level metrics, and desert flag thresholds
