@@ -105,7 +105,7 @@ Schools are excluded if their `coord_rejection_reason` indicates a bogus coordin
 
 Built from the sparse edge table for downstream consumers (e.g., project_paaral) that require O(1) pair lookup. Only covers school pairs within the 20 km road cutoff; all other pairs are 0.
 
-All outputs are also uploaded to GCS at `gs://data_ecair_paaral/ugnay/v1/`.
+All outputs are also uploaded to GCS at `gs://data_ecair_paaral/ugnay/v1/`. Public copies of the edges and metrics are available on [Google Drive](https://drive.google.com/drive/folders/1JMkZT5PXGptlMNY3qLQEDl9ndi1JdZjM?usp=sharing).
 
 ## Usage
 
