@@ -109,63 +109,94 @@ All outputs are also uploaded to GCS at `gs://data_ecair_paaral/ugnay/v1/`. Publ
 
 ## Usage
 
+If you only need the precomputed outputs, download them from [Google Drive](https://drive.google.com/drive/folders/1JMkZT5PXGptlMNY3qLQEDl9ndi1JdZjM?usp=sharing) and skip to [Distance lookup](#distance-lookup-programmatic). The steps below are for recomputing from scratch.
+
 ### Prerequisites
 
-Run inside the `experiments-innovations-lab` Docker container. The container maps the host `innovation-projects/` directory to `/workspace/` internally.
+**Python 3.11+** with the following packages:
 
 ```bash
-# Start container (from innovation-projects/)
-docker compose up -d experiments-innovations-lab
-
-# Run scripts inside container
-docker exec -w /workspace/project_ugnay experiments-innovations-lab python scripts/<script>.py
+pip install pandas pyarrow numpy scipy geopandas requests gcsfs tqdm
 ```
 
-Python dependencies: `pandas`, `pyarrow`, `numpy`, `scipy`, `geopandas`, `requests`, `gcsfs`.
+**OSRM** is required only for Phase 1 (computing road distances). If you are using the precomputed edge files, you do not need OSRM.
+
+#### Setting up OSRM
+
+OSRM must be running locally before executing Phase 1. The quickest way is via Docker using the official OSRM backend image.
+
+```bash
+# 1. Download the Philippines OSM extract
+wget https://download.geofabrik.de/asia/philippines-latest.osm.pbf
+
+# 2. Pre-process the road network (car profile)
+docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-extract -p /opt/car.lua /data/philippines-latest.osm.pbf
+
+docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-partition /data/philippines-latest.osrm
+
+docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-customize /data/philippines-latest.osrm
+
+# 3. Start the OSRM routing server
+docker run -t -i -p 5000:5000 -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
+  osrm-routed --algorithm mld /data/philippines-latest.osrm
+```
+
+OSRM will be available at `http://localhost:5000`. The pre-processing steps (2) are one-time and take ~15–30 minutes depending on hardware. Keep the server running while executing Phase 1 scripts.
 
 ### Phase 1 — Compute sparse edges
 
+Run from the project root. Pass `--osrm-url http://localhost:5000/table/v1/driving/` to point at your local OSRM instance.
+
 ```bash
-# Full run (all 18 regions + cross-region edges + finalize + GCS upload)
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/run_region_batch.py --all --cross-region --finalize
+# Full run — all 18 regions, cross-region edges, finalize (no GCS upload)
+python scripts/run_region_batch.py --all --cross-region --finalize \
+  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
 
 # Specific regions only
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/run_region_batch.py "Region IV-A" "NCR"
+python scripts/run_region_batch.py "Region IV-A" "NCR" \
+  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
 
 # Force re-run even if output files already exist
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/run_region_batch.py --all --cross-region --finalize --force
+python scripts/run_region_batch.py --all --cross-region --finalize --force \
+  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
 ```
 
-Estimated runtime: ~30 minutes for a full run.
+Estimated runtime: ~30 minutes for a full nationwide run.
 
 ### Phase 2 — Compute metrics
 
-```bash
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/run_metrics.py
+No OSRM required — reads the edge files produced by Phase 1.
 
-# Skip GCS upload
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/run_metrics.py --no-upload
+```bash
+python scripts/run_metrics.py --no-upload
 ```
 
 ### Validate edges
 
 ```bash
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/validate_edges.py
+python scripts/validate_edges.py
 ```
 
 Runs 5 checks: road ≥ haversine, distance symmetry, triangle inequality, distribution stability, and road/haversine ratio distribution.
 
 ### Build dense matrix
 
+Builds a dense N×N `.npy` distance matrix for a subset of regions. Useful for downstream projects that require O(1) pair lookup.
+
 ```bash
-docker exec -w /workspace/project_ugnay experiments-innovations-lab \
-  python scripts/build_dense_matrix.py
+# Example: NCR + Region III + Region IV-A
+python scripts/build_dense_matrix.py \
+  --regions "NCR" "Region III" "Region IV-A" \
+  --osrm-url http://localhost:5000/table/v1/driving/
+
+# List available regions
+python scripts/build_dense_matrix.py --list
+
+# Dry run (shows school count and estimated size without computing)
+python scripts/build_dense_matrix.py --regions "NCR" "Region III" "Region IV-A" --dry-run
 ```
 
 ### Distance lookup (programmatic)
@@ -175,14 +206,14 @@ from modules.distance_lookup import DistanceLookup
 
 dist = DistanceLookup.from_parquet("output/edges/all_edges.parquet")
 
-# Single pair (returns meters, or None if no edge)
-km = dist.get("136718", "320102")
+# Single pair (returns meters, or None if no edge within the 20 km cutoff)
+dist.get("136718", "320102")
 
 # All neighbors within radius
-neighbors = dist.get_neighbors("136718", max_m=5000)
+dist.get_neighbors("136718", max_m=5000)
 
 # Batch lookup
-distances = dist.get_many([("136718", "320102"), ("136718", "130001")])
+dist.get_many([("136718", "320102"), ("136718", "130001")])
 ```
 
 ## Project Structure
